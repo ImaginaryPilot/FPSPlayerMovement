@@ -1,6 +1,4 @@
-using System;
 using System.Collections;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class PlayerMovement : MonoBehaviour
@@ -8,13 +6,16 @@ public class PlayerMovement : MonoBehaviour
     [Header("Movement")]
     // Movement Speed
     private float moveSpeed;
-    public float walkSpeed = 10f;
+    public float walkSpeed = 6f;
     // Counteractive force to stop sloppy movement
     public float counterMovementFactor = 5f;
     public float walkHeight = 2f;
     // Calculating differences in speed
     private float desiredMoveSpeed;
     private float lastDesiredMoveSpeed;
+    [Header("Running")]
+    public bool AbilityToSprint;
+    public float sprintSpeed = 10f;
 
     [Header("Jumping")]
     // Jump Forces
@@ -36,7 +37,7 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Sliding")]
     public bool AbilityToSlide;
-    public float slideSpeed = 30f;
+    public float slideSpeed = 15f;
     public float slideForce = 100f;
     public float slideHeight = 1f;
     // How fast is the increase in speed on slopes whilst sliding
@@ -48,7 +49,7 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Wallrunning")]
     public bool AbilityToWallRun;
-    public float wallRunSpeed = 15f;
+    public float wallRunSpeed = 10f;
     public float wallRunForce = 200f;
     public float wallCheckDistance = 1f;
     public float minJumpHeight = 0.1f;
@@ -64,9 +65,12 @@ public class PlayerMovement : MonoBehaviour
     private bool isWallRunning;
     private bool exitingWall;
     Vector3 wallNormal;
+    [Header("Vaulting")]
+    public bool AbilityToVault;
 
     [Header("Keybinds")]
     public KeyCode jumpKey = KeyCode.Space;
+    public KeyCode sprintKey = KeyCode.LeftShift;
     public KeyCode crouchKey = KeyCode.C;
     public KeyCode slideKey = KeyCode.LeftControl;
 
@@ -75,6 +79,7 @@ public class PlayerMovement : MonoBehaviour
     public LayerMask GroundLayer;
     public LayerMask WallLayer;
     bool grounded;
+    bool cameraOffsetGround;
 
     [Header("Slope Handling")]
     public float slopeSpeed = 9f;
@@ -82,6 +87,11 @@ public class PlayerMovement : MonoBehaviour
     public float SlopeForce = 30f;
     private RaycastHit slopeHit;
     private bool exitingSlope;
+    [Header("Landing Feedback")]
+    public bool turnOnLandingFeedback;
+    public float hardLandingThreshold = 10f;  // Threshold speed for hard landing
+    public GameObject landingEffect;          // Landing effect prefab or reference
+    private bool landingFeedbackTriggered;
 
     [Header("References")]
     // Transform of player orientation
@@ -99,7 +109,8 @@ public class PlayerMovement : MonoBehaviour
     [Header("Different States of Player")]
     public MovementState state;
     public enum MovementState{
-        running,
+        walking,
+        sprinting,
         crouching,
         sliding,
         wallrunning, 
@@ -126,11 +137,25 @@ public class PlayerMovement : MonoBehaviour
             playerHeight = walkHeight;
         }
         
+        // Checking Ground
         GroundCheck();
+
+        // Inputs
         MyInput();
+
+        // Preventing overspeeding
         SpeedControl();
+
+        // Changing States
         StateHandler();
+
+        // Checking for a wall
         CheckForWall();
+
+        if(turnOnLandingFeedback){
+            // Check for hard landing
+            CheckForHardLanding();
+        }
     }
 
     void FixedUpdate(){
@@ -156,9 +181,15 @@ public class PlayerMovement : MonoBehaviour
             }
         }
         
+        // Running
+        else if(AbilityToSprint && grounded && Input.GetKey(sprintKey)) {
+            state = MovementState.sprinting;
+            desiredMoveSpeed = sprintSpeed;
+        }
+
         // Walking
-        else if(grounded) {
-            state = MovementState.running;
+        else if(grounded){
+            state = MovementState.walking;
             desiredMoveSpeed = walkSpeed;
         }
 
@@ -204,6 +235,8 @@ public class PlayerMovement : MonoBehaviour
     {
         // Use a small sphere at the player's feet for ground detection
         grounded = Physics.CheckSphere(transform.position + Vector3.down * playerHeight * 0.5f, 0.2f, GroundLayer);
+
+        cameraOffsetGround = Physics.Raycast(transform.position, Vector3.down, out slopeHit, playerHeight * 0.5f + 0.8f, GroundLayer);
 
         // Additional raycast for slopes
         if (OnSlope())
@@ -575,5 +608,38 @@ public class PlayerMovement : MonoBehaviour
 
         rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
         rb.AddForce(forceToApply, ForceMode.Impulse);
+    }
+
+    // Landing Feedback
+    private void CheckForHardLanding()
+    {
+        if (cameraOffsetGround && rb.linearVelocity.y <= 0 && !isWallRunning && !landingFeedbackTriggered)
+        {
+            TriggerLandingFeedback();
+            landingFeedbackTriggered = true;
+        }
+        else if (!cameraOffsetGround)
+        {
+            landingFeedbackTriggered = false; // Reset when the player is in the air
+        }
+    }
+
+    private void TriggerLandingFeedback()
+    {
+        // Instantiate a landing effect at the player's position
+        if (landingEffect != null)
+        {
+            Instantiate(landingEffect, transform.position, Quaternion.identity);
+        }
+
+        if(!isSliding){
+            if(moveSpeed < 11f){
+                // Trigger camera landing feedback
+                cam.ApplyLandingFeedback(0.4f, 0.3f); // Adjust duration and strength as needed
+            } else {
+                // Trigger camera landing feedback
+                cam.ApplyLandingFeedback(0.4f, 0.8f); // Adjust duration and strength as needed
+            }
+        }
     }
 }
